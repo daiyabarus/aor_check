@@ -1,30 +1,6 @@
 """
-Audit Summary Tool
+AOR Summary Tool
 ==================
-
-Reads multiple site-audit Excel workbooks from a folder (e.g. files named like
-"Audit_SUM-SU-STB-1326_20260521.xlsx"), pulls the DRM / After-MOCN antenna
-values (Antenna Type, Antenna Height, Azimuth, M-tilt) per sector from the
-"L2100 + 1800+ L850" sheet, compares DRM vs After MOCN, and appends the
-summary as new rows at the END of an existing tracker workbook
-(tracker_audit.xlsx) -- existing rows are never touched or overwritten.
-
-If a site's "L2300" sheet also has complete (non-N/A) values, extra rows are
-appended right after that site's main rows, tagged with REMARK = "L2300".
-
-Usage:
-    python audit_summary_tool.py
-
-This opens a small GUI:
-  1. Browse Folder  -> folder containing the source audit .xlsx files
-  2. Browse Tracker  -> the existing tracker_audit.xlsx to append into
-  3. Run             -> processes every workbook in the folder and appends
-                         results to the tracker file (a timestamped backup
-                         of the tracker is made first).
-
-All the cell/row mapping below matches the layout observed in the sample
-files. If a future source file uses a different layout, adjust the CONFIG
-section only -- the rest of the logic does not need to change.
 """
 
 import os
@@ -39,36 +15,23 @@ from datetime import datetime
 import openpyxl
 from openpyxl.utils import column_index_from_string
 
-# ----------------------------------------------------------------------------
-# CONFIG -- cell/row mapping (edit here if a source file layout changes)
-# ----------------------------------------------------------------------------
-
-# Sheet names in the SOURCE audit workbook (matched with .strip() so trailing
-# spaces like "L2100 + 1800+ L850 " don't matter).
 SRC_SHEET_MAIN = "L2100 + 1800+ L850"
 SRC_SHEET_L2300 = "L2300"
 
-# New Site ID lives at B3 (merged B3:C3) on the main sheet.
 SITE_ID_CELL = "B3"
 
-# Sector number row, one value per sector column (D5:E5, F5:G5, H5:I5, J5:K5
-# are all merged pairs -- we only need the left column of each pair).
 SECTOR_ROW = 5
-# up to 4 sectors; invalid/N/A ones are skipped
 SECTOR_COLS = ["D", "F", "H", "J"]
 
-# Row numbers for each metric on the main sheet.
-AZIMUTH_DRM_ROW = 6          # "Orientation(*) Planning"  -> DRM
-AZIMUTH_AFTER_ROW = 7        # "Orientation(*) After"     -> After MOCN
-MTILT_DRM_ROW = 8            # "Mech Tilt(*) Planning"    -> DRM
-MTILT_AFTER_ROW = 9          # "Mech Tilt(*) After"       -> After MOCN
-ANTENNA_TYPE_ROW = 10        # "Model" (shared by DRM & After MOCN)
-# "Antenna Height (M)" (shared by DRM & After MOCN)
+AZIMUTH_DRM_ROW = 6
+AZIMUTH_AFTER_ROW = 7
+MTILT_DRM_ROW = 8
+MTILT_AFTER_ROW = 9
+ANTENNA_TYPE_ROW = 10
 ANTENNA_HEIGHT_ROW = 11
 
-# Tracker (output) workbook layout.
 TRACKER_SHEET_NAME = "Tracker Audit"
-TRACKER_FIRST_DATA_ROW = 3   # rows 1-2 are headers
+TRACKER_FIRST_DATA_ROW = 3
 TRACKER_COLS = {
     "site_id": "A",
     "sector": "B",
@@ -87,23 +50,13 @@ TRACKER_COLS = {
 NA_VALUES = {"", "N/A", "NA", "-", "NONE"}
 
 
-# ----------------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------------
-
 def is_valid(value):
-    """True if a cell value counts as real data (not blank / N/A)."""
     if value is None:
         return False
     return str(value).strip().upper() not in NA_VALUES
 
 
 def read_merged(ws, coord):
-    """
-    Read a cell's value, resolving merged cells: if `coord` falls inside a
-    merged range, return the value stored at the top-left anchor cell of
-    that range (openpyxl only stores the value there).
-    """
     cell = ws[coord]
     for merged_range in ws.merged_cells.ranges:
         if coord in merged_range:
@@ -113,7 +66,6 @@ def read_merged(ws, coord):
 
 
 def find_sheet(wb, target_name):
-    """Find a sheet whose name matches target_name, ignoring surrounding whitespace."""
     target = target_name.strip().lower()
     for name in wb.sheetnames:
         if name.strip().lower() == target:
@@ -122,19 +74,12 @@ def find_sheet(wb, target_name):
 
 
 def get_row_values(ws, row, cols):
-    """Return {col: value} for the given row/cols, resolving merged cells."""
     return {c: read_merged(ws, f"{c}{row}") for c in cols}
 
 
 def build_status_remark(drm_azimuth, after_azimuth, drm_mtilt, after_mtilt,
                         drm_type, after_type, drm_height, after_height,
                         extra_tag=None):
-    """
-    Compare DRM vs After MOCN values and produce (STATUS, REMARK).
-    STATUS is MATCH if all four fields are unchanged, else MISMATCH.
-    REMARK lists which field(s) changed; extra_tag (e.g. "L2300") is
-    prepended when set.
-    """
     diffs = []
     pairs = [
         ("Antenna Type", drm_type, after_type),
@@ -185,8 +130,8 @@ def extract_sheet_rows(ws, site_id, extra_tag=None):
         status, remark = build_status_remark(
             azimuth_drm[col], azimuth_after[col],
             mtilt_drm[col], mtilt_after[col],
-            ant_type[col], ant_type[col],       # antenna type shared
-            ant_height[col], ant_height[col],   # antenna height shared
+            ant_type[col], ant_type[col],
+            ant_height[col], ant_height[col],
             extra_tag=extra_tag,
         )
 
@@ -208,11 +153,6 @@ def extract_sheet_rows(ws, site_id, extra_tag=None):
 
 
 def process_file(path, log=print):
-    """
-    Process a single source workbook. Returns a list of row dicts
-    (main-sheet rows followed by any L2300 rows), or [] if the file
-    doesn't have the expected main sheet.
-    """
     wb = openpyxl.load_workbook(path, data_only=True)
 
     ws_main = find_sheet(wb, SRC_SHEET_MAIN)
@@ -243,8 +183,6 @@ def process_file(path, log=print):
 
 
 def process_folder(folder, tracker_path, log=print):
-    """Process every .xlsx in `folder` (skipping temp/lock files and the
-    tracker file itself) and append the results to the tracker workbook."""
     pattern = os.path.join(folder, "*.xlsx")
     files = sorted(glob.glob(pattern))
 
@@ -277,14 +215,7 @@ def process_folder(folder, tracker_path, log=print):
     return len(all_rows)
 
 
-# ----------------------------------------------------------------------------
-# Tracker append (never touches existing rows)
-# ----------------------------------------------------------------------------
-
 def find_next_empty_row(ws, first_data_row):
-    """Scan column A from the bottom to find the first row after the
-    existing data (robust against ws.max_row over-counting formatted-but-
-    empty rows)."""
     row = ws.max_row
     while row >= first_data_row and ws.cell(row=row, column=1).value in (None, ""):
         row -= 1
@@ -292,7 +223,6 @@ def find_next_empty_row(ws, first_data_row):
 
 
 def append_to_tracker(tracker_path, rows, log=print):
-    # Safety backup before writing.
     backup_path = (
         f"{os.path.splitext(tracker_path)[0]}_backup_"
         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
@@ -316,10 +246,6 @@ def append_to_tracker(tracker_path, rows, log=print):
     wb.save(tracker_path)
     log(f"Saved: {tracker_path}")
 
-
-# ----------------------------------------------------------------------------
-# GUI
-# ----------------------------------------------------------------------------
 
 def launch_gui():
     import tkinter as tk
@@ -389,7 +315,6 @@ def launch_gui():
 
         threading.Thread(target=task, daemon=True).start()
 
-    # Layout
     pad = {"padx": 8, "pady": 6}
 
     frame_top = tk.Frame(root)
